@@ -31,6 +31,7 @@ var (
 	_ resource.Resource                = (*richMenuResource)(nil)
 	_ resource.ResourceWithConfigure   = (*richMenuResource)(nil)
 	_ resource.ResourceWithImportState = (*richMenuResource)(nil)
+	_ resource.ResourceWithModifyPlan  = (*richMenuResource)(nil)
 )
 
 func (r *richMenuResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -69,7 +70,15 @@ func (r *richMenuResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Computed:    true,
 				Description: "Whether this is the menu shown by default. Does not by itself set it as every user's default menu — see line_rich_menu_default for that.",
 				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.RequiresReplace(),
+					// Not RequiresReplace(): this attribute is Optional+Computed, so
+					// when it's left out of config the framework marks it unknown
+					// on every plan (not just when it actually changes). Plain
+					// RequiresReplace() would then force a full recreate on any
+					// unrelated change (e.g. just updating image_path) whenever a
+					// user omits "selected". RequiresReplaceIfConfigured() only
+					// forces replacement when the user explicitly sets a new value
+					// for it.
+					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"size": schema.SingleNestedAttribute{
@@ -138,6 +147,46 @@ func (r *richMenuResource) Configure(_ context.Context, req resource.ConfigureRe
 	r.client = c
 }
 
+// ModifyPlan detects a rich menu image whose *content* changed on disk while
+// image_path stayed the same string. Without this, such a change is
+// invisible to a plain schema diff (image_path is unchanged, and image_hash
+// is Computed with no way to react to a file the framework never looks at),
+// so `terraform plan` would show no changes even though the locally
+// configured image no longer matches what's uploaded.
+func (r *richMenuResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return // create or destroy: nothing to compare against yet
+	}
+
+	var plan richMenuResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	var state richMenuResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if plan.ImagePath.IsNull() || plan.ImagePath.ValueString() == "" {
+		return
+	}
+	if plan.ImagePath.ValueString() != state.ImagePath.ValueString() {
+		return // a path change already produces a plan diff on its own
+	}
+
+	data, err := os.ReadFile(plan.ImagePath.ValueString())
+	if err != nil {
+		// Let Update's own os.ReadFile surface this error at apply time with
+		// full context; ModifyPlan just silently skips drift detection.
+		return
+	}
+	if lineapi.ContentHash(data) != state.ImageHash.ValueString() {
+		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("image_hash"), types.StringUnknown())...)
+	}
+}
+
 func (r *richMenuResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data richMenuResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -170,6 +219,21 @@ func (r *richMenuResource) Create(ctx context.Context, req resource.CreateReques
 
 	r.refresh(ctx, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if data.ID.IsNull() {
+		// refresh nulls the ID when GetRichMenu 404s. Right after a
+		// successful CreateRichMenu (and possibly an image upload) that
+		// means the rich menu now exists at LINE but Terraform has no
+		// record of it — silently writing this null-ID model to state would
+		// make the next plan create a duplicate (and re-upload the image).
+		// Fail loudly so the operator can check before retrying.
+		resp.Diagnostics.AddError(
+			"Rich menu created but not found on immediate read-back",
+			"Created rich menu "+id+" but a subsequent GetRichMenu call could not find it. "+
+				"This may be API read-after-write lag rather than a real failure — check the LINE Developers "+
+				"console for a rich menu with this ID before retrying, to avoid creating a duplicate.",
+		)
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -228,6 +292,13 @@ func (r *richMenuResource) Update(ctx context.Context, req resource.UpdateReques
 
 	r.refresh(ctx, &plan, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if plan.ID.IsNull() {
+		resp.Diagnostics.AddError(
+			"Rich menu not found immediately after update",
+			"Updated rich menu "+state.ID.ValueString()+" but it no longer appears in a subsequent GetRichMenu call.",
+		)
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)

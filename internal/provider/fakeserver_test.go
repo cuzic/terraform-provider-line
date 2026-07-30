@@ -68,6 +68,7 @@ func (f *fakeLineServer) handleAPI(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/liff/v1/apps":
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		fillLiffAppDefaults(body)
 		f.liffNextID++
 		id := fmt.Sprintf("liff-%d", f.liffNextID)
 		body["liffId"] = id
@@ -89,6 +90,7 @@ func (f *fakeLineServer) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		fillLiffAppDefaults(body)
 		body["liffId"] = id
 		f.liffApps[id] = body
 		w.WriteHeader(http.StatusOK)
@@ -151,6 +153,33 @@ func (f *fakeLineServer) handleData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusNotFound, map[string]any{"message": "no route: " + r.Method + " " + r.URL.Path})
+}
+
+// fillLiffAppDefaults mimics the real LIFF server API's documented
+// server-side defaulting: permanentLinkPattern is always "concat",
+// botPrompt defaults to "none", and scope defaults to
+// ["profile", "chat_message.write"] when the request omits them. Without
+// this, the fake server would just echo back whatever the request sent
+// (including nothing), silently hiding provider bugs where an Optional
+// attribute isn't marked Computed to tolerate this kind of server-supplied
+// default (see internal/provider/resource_liff_app.go's schema comment).
+func fillLiffAppDefaults(body map[string]any) {
+	if s, _ := body["permanentLinkPattern"].(string); s == "" {
+		body["permanentLinkPattern"] = "concat"
+	}
+	if s, _ := body["botPrompt"].(string); s == "" {
+		body["botPrompt"] = "none"
+	}
+	// Keyed on presence, not length: an explicit empty array is a different
+	// wire value than an absent key, and only the latter should trigger the
+	// default. In practice the client's own `omitempty` JSON tags mean an
+	// explicitly-empty scope never reaches here as a present-but-empty key
+	// anyway (see the KNOWN LIMITATION note on the "scope" schema attribute
+	// in resource_liff_app.go) — this check is correct for what a real LIFF
+	// server would see either way.
+	if _, ok := body["scope"]; !ok {
+		body["scope"] = []any{"profile", "chat_message.write"}
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

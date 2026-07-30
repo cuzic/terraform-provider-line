@@ -32,12 +32,12 @@ resource "line_liff_app" "this" {
 ### Optional
 
 - `ble` (Boolean) true if the LIFF app supports Bluetooth Low Energy for LINE Things.
-- `bot_prompt` (String) Bot link feature setting: normal, aggressive, or none (LINE's default).
+- `bot_prompt` (String) Bot link feature setting: normal, aggressive, or none. Defaults to none.
 - `description` (String) Name of the LIFF app. Must not contain "LINE" or similar strings.
 - `module_mode` (Boolean) true to run the LIFF app in modular mode (hides the header action button).
-- `permanent_link_pattern` (String) How additional information in LIFF URLs is handled. LINE currently only accepts "concat".
+- `permanent_link_pattern` (String) How additional information in LIFF URLs is handled. LINE currently only accepts "concat", which is also what it defaults to.
 - `qr_code` (Boolean) true to use the 2D code reader in the LIFF app.
-- `scope` (List of String) Scopes required by the LIFF app: openid, email, profile, chat_message.write.
+- `scope` (List of String) Scopes required by the LIFF app: openid, email, profile, chat_message.write. Defaults to [profile, chat_message.write] when omitted. KNOWN LIMITATION: an explicit empty list (scope = []) is indistinguishable on the wire from an omitted one and will resolve to that same default rather than staying empty — omit this attribute for the default, or list the scopes you actually want.
 
 ### Read-Only
 

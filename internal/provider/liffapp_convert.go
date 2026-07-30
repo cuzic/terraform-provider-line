@@ -64,9 +64,16 @@ func liffAppToModel(ctx context.Context, app lineapi.LiffApp, data *liffAppResou
 	data.ViewType = types.StringValue(app.View.Type)
 	data.ViewURL = types.StringValue(app.View.URL)
 	data.ModuleMode = boolPtrToTF(app.View.ModuleMode)
-	data.Description = stringOrNull(app.Description)
-	data.PermanentLinkPattern = stringOrNull(app.PermanentLinkPattern)
-	data.BotPrompt = stringOrNull(app.BotPrompt)
+	// These three are Optional+Computed with LINE-side defaults (see the
+	// schema comment in resource_liff_app.go), so — unlike a plain Optional
+	// attribute — it's safe and necessary to always write back a concrete
+	// value here, even an empty string. Collapsing "" to null would make an
+	// explicit `description = ""` in config fail with "provider produced
+	// inconsistent result after apply", since the planned value (known,
+	// non-null) would no longer match what got written to state.
+	data.Description = types.StringValue(app.Description)
+	data.PermanentLinkPattern = types.StringValue(app.PermanentLinkPattern)
+	data.BotPrompt = types.StringValue(app.BotPrompt)
 
 	if app.Features != nil {
 		data.BLE = boolPtrToTF(app.Features.BLE)
@@ -76,16 +83,15 @@ func liffAppToModel(ctx context.Context, app lineapi.LiffApp, data *liffAppResou
 		data.QRCode = types.BoolNull()
 	}
 
-	if len(app.Scope) == 0 {
-		data.Scope = types.ListNull(types.StringType)
-	} else {
-		elems := make([]types.String, 0, len(app.Scope))
-		for _, s := range app.Scope {
-			elems = append(elems, types.StringValue(s))
-		}
-		list, _ := types.ListValueFrom(ctx, types.StringType, elems)
-		data.Scope = list
+	// Same reasoning as above: always a concrete (possibly empty) list,
+	// never null, so an explicit `scope = []` in config round-trips instead
+	// of being reported back as null.
+	elems := make([]types.String, 0, len(app.Scope))
+	for _, s := range app.Scope {
+		elems = append(elems, types.StringValue(s))
 	}
+	list, _ := types.ListValueFrom(ctx, types.StringType, elems)
+	data.Scope = list
 }
 
 func boolPtrToTF(b *bool) types.Bool {

@@ -162,6 +162,18 @@ func (r *webhookEndpointResource) ImportState(ctx context.Context, _ resource.Im
 func (r *webhookEndpointResource) readInto(ctx context.Context, data *webhookEndpointResourceModel, diags *diag.Diagnostics) {
 	ep, err := r.client.GetWebhookEndpoint(ctx)
 	if err != nil {
+		if client.IsNotFound(err) {
+			// LINE 404s this endpoint when no webhook URL has ever been set
+			// on the channel (including right after this provider's own
+			// Delete, which clears it rather than truly deleting anything —
+			// see Delete's doc comment). That's this singleton's empty
+			// state, not a missing resource, so surface it as data instead
+			// of failing every subsequent plan/refresh/destroy.
+			data.ID = types.StringValue(webhookEndpointSingletonID)
+			data.Endpoint = types.StringValue("")
+			data.Active = types.BoolValue(false)
+			return
+		}
 		diags.AddError("Unable to read webhook endpoint", err.Error())
 		return
 	}

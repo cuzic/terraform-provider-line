@@ -7,6 +7,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -67,34 +69,74 @@ func (r *liffAppResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Required:    true,
 				Description: "Endpoint URL of the web app implementing the LIFF app. Must use https and must not contain a URL fragment.",
 			},
+			// module_mode, description, ble, qr_code, permanent_link_pattern,
+			// scope, and bot_prompt are all Optional+Computed: LINE's API
+			// echoes back a server-side default for several of these
+			// (permanent_link_pattern is always "concat"; bot_prompt defaults
+			// to "none"; scope defaults to ["profile", "chat_message.write"])
+			// even when the request omitted them. Optional-only (non-Computed)
+			// would make Terraform reject that echoed-back value as a
+			// "provider produced inconsistent result after apply" error
+			// whenever a user leaves one of these unset.
 			"module_mode": schema.BoolAttribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "true to run the LIFF app in modular mode (hides the header action button).",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"description": schema.StringAttribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "Name of the LIFF app. Must not contain \"LINE\" or similar strings.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"ble": schema.BoolAttribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "true if the LIFF app supports Bluetooth Low Energy for LINE Things.",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"qr_code": schema.BoolAttribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "true to use the 2D code reader in the LIFF app.",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"permanent_link_pattern": schema.StringAttribute{
 				Optional:    true,
-				Description: "How additional information in LIFF URLs is handled. LINE currently only accepts \"concat\".",
+				Computed:    true,
+				Description: "How additional information in LIFF URLs is handled. LINE currently only accepts \"concat\", which is also what it defaults to.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"scope": schema.ListAttribute{
 				Optional:    true,
+				Computed:    true,
 				ElementType: types.StringType,
-				Description: "Scopes required by the LIFF app: openid, email, profile, chat_message.write.",
+				Description: "Scopes required by the LIFF app: openid, email, profile, chat_message.write. Defaults to " +
+					"[profile, chat_message.write] when omitted. KNOWN LIMITATION: an explicit empty list (scope = []) " +
+					"is indistinguishable on the wire from an omitted one and will resolve to that same default rather " +
+					"than staying empty — omit this attribute for the default, or list the scopes you actually want.",
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"bot_prompt": schema.StringAttribute{
 				Optional:    true,
-				Description: "Bot link feature setting: normal, aggressive, or none (LINE's default).",
+				Computed:    true,
+				Description: "Bot link feature setting: normal, aggressive, or none. Defaults to none.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 	}
@@ -135,6 +177,21 @@ func (r *liffAppResource) Create(ctx context.Context, req resource.CreateRequest
 
 	r.readInto(ctx, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if data.ID.IsNull() {
+		// readInto nulls the ID when the app isn't in GetAllLiffApps. Right
+		// after a successful AddLiffApp that means the LIFF app now exists
+		// at LINE but Terraform has no record of it — silently writing this
+		// null-ID model to state would make the next plan create a
+		// duplicate. Fail loudly instead so the operator can investigate
+		// (most likely API read-after-write lag) before retrying.
+		resp.Diagnostics.AddError(
+			"LIFF app created but not found on immediate read-back",
+			"Created LIFF app "+liffID+" but it did not appear in a subsequent GetAllLiffApps call. "+
+				"This may be API read-after-write lag rather than a real failure — check the LINE Developers "+
+				"console for a LIFF app with this ID before retrying, to avoid creating a duplicate.",
+		)
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -188,8 +245,16 @@ func (r *liffAppResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
+	updatedID := data.ID.ValueString()
 	r.readInto(ctx, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if data.ID.IsNull() {
+		resp.Diagnostics.AddError(
+			"LIFF app not found immediately after update",
+			"Updated LIFF app "+updatedID+" but it no longer appears in a subsequent GetAllLiffApps call.",
+		)
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

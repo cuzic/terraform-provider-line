@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -106,7 +107,11 @@ func TestClientLogging_NeverLeaksToken(t *testing.T) {
 
 	var logs []string
 	c := New("super-secret-token", WithAPIBaseURL(srv.URL), WithLogger(func(_ context.Context, format string, args ...any) {
-		logs = append(logs, format)
+		// Must format with args here, not just record the format string —
+		// the log call site this test is meant to guard against is
+		// c.log(ctx, "%s", redactedMessage), where the token (if it leaked)
+		// would only ever appear in args, never in the literal format string.
+		logs = append(logs, fmt.Sprintf(format, args...))
 	}))
 
 	if _, err := c.doJSON(context.Background(), http.MethodGet, srv.URL, "/anything", nil); err != nil {

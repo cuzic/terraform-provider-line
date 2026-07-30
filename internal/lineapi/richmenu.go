@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -71,17 +72,21 @@ func ValidateRichMenu(rm RichMenu) error {
 	if rm.Size.Height <= 0 || rm.Size.Height > MaxRichMenuSizeDimension {
 		return fmt.Errorf("size.height must be between 1 and %d, got %d", MaxRichMenuSizeDimension, rm.Size.Height)
 	}
+	// LINE's maxLength constraints count characters, not bytes — counting
+	// bytes here would reject far-shorter-than-the-limit Japanese text
+	// (LINE's primary market) since UTF-8 encodes most Japanese characters
+	// as 3 bytes each.
 	if rm.Name == "" {
 		return fmt.Errorf("name must not be empty")
 	}
-	if len(rm.Name) > MaxRichMenuNameLength {
-		return fmt.Errorf("name must be %d characters or fewer, got %d", MaxRichMenuNameLength, len(rm.Name))
+	if n := utf8.RuneCountInString(rm.Name); n > MaxRichMenuNameLength {
+		return fmt.Errorf("name must be %d characters or fewer, got %d", MaxRichMenuNameLength, n)
 	}
-	if len(rm.ChatBarText) == 0 {
+	if rm.ChatBarText == "" {
 		return fmt.Errorf("chat_bar_text must not be empty")
 	}
-	if len(rm.ChatBarText) > MaxChatBarTextLength {
-		return fmt.Errorf("chat_bar_text must be %d characters or fewer, got %d", MaxChatBarTextLength, len(rm.ChatBarText))
+	if n := utf8.RuneCountInString(rm.ChatBarText); n > MaxChatBarTextLength {
+		return fmt.Errorf("chat_bar_text must be %d characters or fewer, got %d", MaxChatBarTextLength, n)
 	}
 	if len(rm.Areas) == 0 {
 		return fmt.Errorf("areas must contain at least one area")

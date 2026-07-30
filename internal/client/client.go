@@ -126,9 +126,16 @@ func (c *Client) doJSON(ctx context.Context, method, baseURL, path string, reqBo
 	return c.do(ctx, method, baseURL, path, bodyBytes, "application/json")
 }
 
-// do performs an HTTP request, retrying on HTTP 429 (rate limited) and
-// transport-level errors up to maxRetries times, honoring a Retry-After
-// header when present.
+// do performs an HTTP request, retrying only on HTTP 429 (rate limited) up
+// to maxRetries times, honoring a Retry-After header when present.
+//
+// Deliberately not retried: transport-level errors (a dropped connection or
+// client-side timeout doesn't tell us whether the server ever received or
+// processed the request) and any other status code. Several of this
+// client's callers issue non-idempotent POSTs (AddLiffApp, CreateRichMenu,
+// UploadRichMenuImage) — blindly retrying after an ambiguous transport error
+// risks creating the same object twice, which is worse than surfacing the
+// error and letting the caller decide.
 func (c *Client) do(ctx context.Context, method, baseURL, path string, body []byte, contentType string) ([]byte, error) {
 	var lastErr error
 
@@ -156,15 +163,13 @@ func (c *Client) do(ctx context.Context, method, baseURL, path string, body []by
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			lastErr = fmt.Errorf("%s %s%s: %w", method, baseURL, path, err)
-			continue
+			return nil, fmt.Errorf("%s %s%s: %w", method, baseURL, path, err)
 		}
 
 		respBody, readErr := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if readErr != nil {
-			lastErr = fmt.Errorf("read response body: %w", readErr)
-			continue
+			return nil, fmt.Errorf("read response body: %w", readErr)
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests && attempt < c.maxRetries {

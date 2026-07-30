@@ -31,6 +31,9 @@ func TestValidateLiffApp(t *testing.T) {
 		{name: "valid scope", mutate: func(a LiffApp) LiffApp { a.Scope = []string{"profile", "chat_message.write"}; return a }},
 		{name: "description contains LINE", mutate: func(a LiffApp) LiffApp { a.Description = "My LINE App"; return a }, wantErr: true},
 		{name: "description case-insensitive", mutate: func(a LiffApp) LiffApp { a.Description = "my Line app"; return a }, wantErr: true},
+		{name: "description containing LINE as a substring is allowed", mutate: func(a LiffApp) LiffApp { a.Description = "Online Store"; return a }},
+		{name: "Timeline is allowed", mutate: func(a LiffApp) LiffApp { a.Description = "My Timeline Viewer"; return a }},
+		{name: "Guidelines is allowed", mutate: func(a LiffApp) LiffApp { a.Description = "Community Guidelines"; return a }},
 	}
 
 	for _, tt := range tests {

@@ -2,8 +2,15 @@ package lineapi
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+// lineWordPattern matches "line" as a whole word (ASCII word-boundary rules),
+// case-insensitively. A plain strings.Contains(lower, "line") would also
+// reject "Online", "Timeline", "Guidelines" — none of which reference the
+// LINE app the way LINE's naming restriction is meant to catch.
+var lineWordPattern = regexp.MustCompile(`(?i)\bline\b`)
 
 // LiffView describes a LIFF app's view configuration.
 type LiffView struct {
@@ -60,7 +67,7 @@ func ValidateLiffApp(app LiffApp) error {
 			return fmt.Errorf("scope contains invalid value %q", s)
 		}
 	}
-	if strings.Contains(strings.ToLower(app.Description), "line") {
+	if lineWordPattern.MatchString(app.Description) {
 		return fmt.Errorf("description must not contain %q", "LINE")
 	}
 	return nil

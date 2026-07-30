@@ -9,6 +9,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -107,14 +109,32 @@ func (p *lineProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 			tflog.Debug(ctx, fmt.Sprintf(format, args...))
 		}),
 	}
-	// LINE_API_BASE_URL / LINE_DATA_API_BASE_URL let tests (and only tests —
-	// these are intentionally not provider schema attributes) point the
-	// client at a local fake server instead of the real LINE API.
+	// LINE_API_BASE_URL / LINE_DATA_API_BASE_URL let tests point the client
+	// at a local fake server instead of the real LINE API; they are
+	// intentionally not provider schema attributes. Only honored when they
+	// point at a loopback address (which is all this provider's own test
+	// suite ever sets them to) — otherwise anything able to set an env var
+	// in the Terraform process could silently redirect all API traffic,
+	// including the bearer token, to an arbitrary host.
 	if u := os.Getenv("LINE_API_BASE_URL"); u != "" {
-		opts = append(opts, client.WithAPIBaseURL(u))
+		if isLoopbackBaseURL(u) {
+			opts = append(opts, client.WithAPIBaseURL(u))
+		} else {
+			resp.Diagnostics.AddWarning(
+				"Ignoring LINE_API_BASE_URL",
+				"LINE_API_BASE_URL is only honored when it points at a loopback address (127.0.0.1/::1/localhost); the real LINE API will be used instead.",
+			)
+		}
 	}
 	if u := os.Getenv("LINE_DATA_API_BASE_URL"); u != "" {
-		opts = append(opts, client.WithDataBaseURL(u))
+		if isLoopbackBaseURL(u) {
+			opts = append(opts, client.WithDataBaseURL(u))
+		} else {
+			resp.Diagnostics.AddWarning(
+				"Ignoring LINE_DATA_API_BASE_URL",
+				"LINE_DATA_API_BASE_URL is only honored when it points at a loopback address (127.0.0.1/::1/localhost); the real LINE API will be used instead.",
+			)
+		}
 	}
 
 	c := client.New(token, opts...)
@@ -133,6 +153,22 @@ func (p *lineProvider) Resources(_ context.Context) []func() resource.Resource {
 
 func (p *lineProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return nil
+}
+
+// isLoopbackBaseURL reports whether raw's host is a loopback address
+// (127.0.0.1, ::1, or localhost) — the only kind of URL this provider's own
+// LINE_API_BASE_URL / LINE_DATA_API_BASE_URL test hooks are meant to accept.
+func isLoopbackBaseURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // clientFromProviderData type-asserts providerData (resource.ConfigureRequest.ProviderData)

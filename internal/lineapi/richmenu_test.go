@@ -35,6 +35,14 @@ func TestValidateRichMenu(t *testing.T) {
 		}, wantErr: true},
 		{name: "empty chat bar text", mutate: func(rm RichMenu) RichMenu { rm.ChatBarText = ""; return rm }, wantErr: true},
 		{name: "chat bar text too long", mutate: func(rm RichMenu) RichMenu { rm.ChatBarText = "this is way too long"; return rm }, wantErr: true},
+		{name: "chat bar text: 14 Japanese characters is exactly at the limit", mutate: func(rm RichMenu) RichMenu {
+			rm.ChatBarText = "メニューを開いてください" // 12 characters, well within 14
+			return rm
+		}},
+		{name: "chat bar text: 21 Japanese characters exceeds the limit", mutate: func(rm RichMenu) RichMenu {
+			rm.ChatBarText = "これはとても長いチャットバーのテキストです" // more than 14 characters, but well under 14*3 bytes
+			return rm
+		}, wantErr: true},
 		{name: "no areas", mutate: func(rm RichMenu) RichMenu { rm.Areas = nil; return rm }, wantErr: true},
 		{name: "too many areas", mutate: func(rm RichMenu) RichMenu {
 			areas := make([]RichMenuArea, MaxRichMenuAreas+1)
