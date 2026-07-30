@@ -38,4 +38,12 @@ When adding a new resource, prefer putting any non-trivial logic (validation, re
 
 ## Tracking upstream API changes
 
-LINE's Messaging API evolves independently of this provider. Watch [line/line-openapi](https://github.com/line/line-openapi) for changes to the endpoints this provider wraps (webhook, LIFF, rich menu) and file an issue here when something drifts.
+LINE's Messaging API evolves independently of this provider. `.github/workflows/watch-line-openapi.yml` checks weekly for new commits to the spec files this provider's client is built against and opens an issue automatically; Dependabot (`.github/dependabot.yml`) does the same for Go module and Action version updates.
+
+## Releasing
+
+Releases are built and signed by `.github/workflows/release.yml` via [GoReleaser](https://goreleaser.com) (`.goreleaser.yml`) whenever a `v*` tag is pushed. Before the first real release, a maintainer needs to:
+
+1. Generate a dedicated GPG key for signing releases (not a personal key) and register its public key with the Terraform Registry when publishing the provider there.
+2. Add the private key and passphrase as repository secrets `GPG_PRIVATE_KEY` and `PASSPHRASE`.
+3. Tag a release (`git tag v0.1.0 && git push --tags`) and confirm the workflow produces signed archives, checksums, and `terraform-registry-manifest.json` as release assets — the Terraform Registry requires all of these to list a provider.
