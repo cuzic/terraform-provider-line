@@ -1,0 +1,62 @@
+name: Watch line-openapi
+
+# LINE's Messaging API / LIFF server API evolve independently of this
+# provider. This job polls line/line-openapi's commit history for the
+# specific spec files this provider's client (internal/client) is built
+# against, and opens an issue when any of them change upstream — the actual
+# review of whether anything in internal/client/*.go drifted is still a
+# human task, this just makes sure nobody has to remember to check.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Monday 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check watched spec files for new upstream commits
+        id: check
+        run: |
+          set -euo pipefail
+          state_file=".github/line-openapi-watch.json"
+          files="messaging-api.yml liff.yml webhook.yml"
+          new_state="{}"
+          changed=0
+
+          for f in $files; do
+            sha=$(curl -sS "https://api.github.com/repos/line/line-openapi/commits?path=${f}&per_page=1" | jq -r '.[0].sha')
+            old=$(jq -r --arg f "$f" '.[$f] // ""' "$state_file")
+            new_state=$(echo "$new_state" | jq --arg f "$f" --arg sha "$sha" '.[$f] = $sha')
+            if [ -n "$old" ] && [ "$sha" != "$old" ]; then
+              changed=1
+              echo "changed: $f ($old -> $sha)"
+            fi
+          done
+
+          echo "$new_state" | jq . > "$state_file"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Open issue on upstream change
+        if: steps.check.outputs.changed == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "line/line-openapi: upstream change detected on a watched spec file" \
+            --body "One or more of messaging-api.yml, liff.yml, or webhook.yml changed in https://github.com/line/line-openapi since the last check. Compare against internal/client's DTOs (webhook.go, liffapp.go, richmenu.go) and internal/lineapi's validation constraints for drift." \
+            --label "upstream-api-change"
+
+      - name: Commit updated watch state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/line-openapi-watch.json
+          git diff --cached --quiet || git commit -m "chore: update line-openapi watch state [skip ci]"
+          git push
