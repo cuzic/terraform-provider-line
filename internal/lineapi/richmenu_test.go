@@ -82,6 +82,43 @@ func TestValidateRichMenu(t *testing.T) {
 	}
 }
 
+func TestDetectImageContentType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		filename string
+		want     string
+		wantErr  bool
+	}{
+		{filename: "menu.png", want: "image/png"},
+		{filename: "menu.PNG", want: "image/png"},
+		{filename: "menu.jpg", want: "image/jpeg"},
+		{filename: "menu.jpeg", want: "image/jpeg"},
+		{filename: "/abs/path/to/menu.jpeg", want: "image/jpeg"},
+		{filename: "menu.gif", wantErr: true},
+		{filename: "menu", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.filename, func(t *testing.T) {
+			t.Parallel()
+			got, err := DetectImageContentType(tt.filename)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("DetectImageContentType(%q) expected an error, got nil", tt.filename)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DetectImageContentType(%q) unexpected error: %v", tt.filename, err)
+			}
+			if got != tt.want {
+				t.Fatalf("DetectImageContentType(%q) = %q, want %q", tt.filename, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestContentHash(t *testing.T) {
 	t.Parallel()
 

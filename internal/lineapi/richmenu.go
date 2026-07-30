@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -143,4 +144,21 @@ func validateAction(action RichMenuAction) error {
 func ContentHash(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// DetectImageContentType maps a rich menu image file's extension to the
+// Content-Type LINE expects when uploading it (image/png or image/jpeg —
+// the two formats the Messaging API accepts for rich menu images). It never
+// touches the filesystem, so a resource can validate image_path during plan
+// before any I/O happens.
+func DetectImageContentType(filename string) (string, error) {
+	lower := strings.ToLower(filename)
+	switch {
+	case strings.HasSuffix(lower, ".png"):
+		return "image/png", nil
+	case strings.HasSuffix(lower, ".jpg"), strings.HasSuffix(lower, ".jpeg"):
+		return "image/jpeg", nil
+	default:
+		return "", fmt.Errorf("unsupported rich menu image extension in %q: must be .png, .jpg, or .jpeg", filename)
+	}
 }
