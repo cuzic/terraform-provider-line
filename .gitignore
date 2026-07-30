@@ -1,0 +1,29 @@
+# Go
+/terraform-provider-line
+/dist/
+*.test
+*.out
+coverage.*
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Env files that may hold secrets
+.env
+.envrc
