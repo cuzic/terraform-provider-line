@@ -1,0 +1,35 @@
+name: Acceptance tests (live LINE channel)
+
+# Manually triggered only: this hits a real LINE channel and creates/deletes
+# real resources (webhook endpoint, LIFF apps, rich menus) on it. Requires a
+# repository secret LINE_CHANNEL_ACCESS_TOKEN for a dedicated test channel —
+# never point this at a production channel.
+#
+# workflow_dispatch (not pull_request) is deliberate: PRs from forks cannot
+# read repository secrets, and even for same-repo PRs we don't want every
+# push mutating a live LINE channel's configuration.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: go test (acceptance, live LINE channel)
+        env:
+          TF_ACC: "1"
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+        run: go test ./... -v

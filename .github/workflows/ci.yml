@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "The following files are not gofmt'd:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+      - name: go test (unit)
+        run: go test ./... -v
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: go test (acceptance, fake LINE API server)
+        # These are real Terraform plan/apply/import acceptance tests
+        # (see internal/provider/*_test.go), but they run against an
+        # in-memory fake LINE API server (internal/provider/fakeserver_test.go)
+        # rather than a live channel, so no LINE_CHANNEL_ACCESS_TOKEN secret
+        # is needed here. See .github/workflows/acceptance-live.yml for
+        # tests against a real LINE channel.
+        run: TF_ACC=1 go test ./... -v
