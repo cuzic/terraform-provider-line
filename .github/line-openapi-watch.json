@@ -1,1 +1,5 @@
-{}
+{
+  "messaging-api.yml": "b9460c90f10497042d3487bd73cf9bf68ad60ca9",
+  "liff.yml": "b9460c90f10497042d3487bd73cf9bf68ad60ca9",
+  "webhook.yml": "99df56b76bf1b8a8268456fa36c2d1538b4c086c"
+}
